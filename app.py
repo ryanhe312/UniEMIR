@@ -1,5 +1,7 @@
 import torch
 import json
+import copy
+import torchvision
 
 import numpy as np
 import gradio as gr
@@ -12,6 +14,7 @@ from tifffile import imread, imwrite
 from torch.nn import functional as F
 from torchvision.transforms import functional as tf
 from models.UniEMIR_network import Network
+from classifier.classifier import add_gaussian_noise, add_gaussian_blur, fft_tensor, Classifier
 
 DEVICES = ['CPU','CUDA','Paralleled CUDA']
 TASKS = ['Super-Resolution','Denoising','Isotropic Reconstruction']
@@ -24,8 +27,7 @@ class Args:
     task = None
     device = 'cpu'
 
-@torch.no_grad()
-def run_model(img_input):
+def run_model(img_input, adaptive):
     global MODEL, ARGS
 
     if MODEL is None:
@@ -65,8 +67,8 @@ def run_model(img_input):
         image = torch.stack([image[:-1], image[1:]], dim=1)
 
     # upscale
-    if ARGS.task == 1:
-        image = F.interpolate(image, scale_factor=2, mode='bilinear', align_corners=False)
+    # if ARGS.task == 1:
+    #     image = F.interpolate(image, scale_factor=2, mode='bilinear', align_corners=False)
 
     image = tf.normalize(image, 0.5, 0.5)
     print(image.shape, image.max(), image.min())
@@ -84,12 +86,119 @@ def run_model(img_input):
 
     print(f'Image shape: {image_process.shape}')
 
+    # adapt
+    MODEL.model.task = ARGS.task
+    if adaptive and ARGS.task != 3:
+        # setup the student model
+        tea_model = MODEL.model
+        stu_model = copy.deepcopy(tea_model)
+        stu_model.train()
+        optimizer = torch.optim.Adam(stu_model.parameters(), lr=5e-5)
+
+        # generate crap image
+        if ARGS.task == 1:
+            classifier = Classifier(task='blur', device=ARGS.device)
+            cond_image = np.clip((image[0,0].cpu().numpy() + 1) * 127.5, 0, 255).astype(np.uint8)
+            level = classifier(fft_tensor(cond_image))[0]
+            print('Blur level:', level)
+            crap_image = add_gaussian_blur(cond_image, level)
+        elif ARGS.task == 2:
+            classifier = Classifier(task='noise', device=ARGS.device)
+            cond_image = np.clip((image[0,0].cpu().numpy() + 1) * 127.5, 0, 255).astype(np.uint8)
+            level = classifier(fft_tensor(cond_image))[0]
+            print('Noise level:', level)
+            crap_image = add_gaussian_noise(cond_image, level)
+        else:
+            raise ValueError('task not supported')
+        
+        print('reimaging:', crap_image.shape, crap_image.max(), crap_image.min())
+        print('raw image:', cond_image.shape, cond_image.max(), cond_image.min())
+        cond_image = torch.tensor(cond_image,device=ARGS.device).float().unsqueeze(0).unsqueeze(0) / 127.5 - 1
+        crap_image = torch.tensor(crap_image,device=ARGS.device).float().unsqueeze(0).unsqueeze(0) / 127.5 - 1
+
+        # optimize the student model
+        for i in range(adaptive):
+            optimizer.zero_grad()
+
+            # random crop to 64 x 64
+            lq, input_crap = [], []
+            for j in range(32):
+                # get random crop
+                y = np.random.randint(0, cond_image.shape[-2]-64)
+                x = np.random.randint(0, cond_image.shape[-1]-64)
+                lq.append(cond_image[..., y:y+64, x:x+64])
+                input_crap.append(crap_image[..., y:y+64, x:x+64])
+            lq = torch.concat(lq, dim=0)
+            input_crap = torch.concat(input_crap, dim=0)
+
+            # forward pass
+            output_stu = stu_model(lq)
+            output_tea = tea_model(lq).detach()
+            output_crap = stu_model(input_crap)
+
+            # compute loss
+            loss = torch.sqrt(torch.square(output_crap-output_tea)+1e-3).mean() + torch.sqrt(torch.square(output_stu-output_crap)+1e-3).mean()
+            print('loss:',loss.item())
+
+            loss.backward()
+            optimizer.step()
+        
+        # eval student model
+        stu_model.eval()
+
+    if adaptive and ARGS.task == 3:
+        # setup the student model
+        tea_model = MODEL.model
+        stu_model = copy.deepcopy(tea_model)
+        stu_model.train()
+        optimizer = torch.optim.Adam(stu_model.parameters(), lr=5e-5)
+
+        cond_image = torch.cat([image[:,0], image[-1:,1]], dim=0).transpose(0,1).to(ARGS.device)
+        print('reimaging:', cond_image.shape)
+        
+        if cond_image.shape[1] <= 64:
+            gr.Warning("Image axial resolution too small for imaging-aware adaptation!")
+            adaptive = 0
+
+        # optimize the student model
+        for i in range(adaptive):
+            optimizer.zero_grad()
+
+            # random crop to 64 x 64
+            lq, hq = [], []
+            for j in range(32):
+                # get random crop
+                y = np.random.randint(0, cond_image.shape[-2]-64)
+                x = np.random.randint(0, cond_image.shape[-1]-64)
+                z = np.random.randint(0, cond_image.shape[0]-6)
+                lq.append(torch.stack([cond_image[z, y:y+64, x:x+64],cond_image[z+6, y:y+64, x:x+64]]))
+                hq.append(cond_image[z+1:z+6, y:y+64, x:x+64].flip(0))
+            lq = torch.stack(lq, dim=0)
+            hq = torch.stack(hq, dim=0)
+            print('lq:',lq.shape,'hq:',hq.shape)
+
+            # forward pass
+            output_stu = stu_model(lq)
+
+            # compute loss
+            loss = torch.sqrt(torch.square(output_stu-hq)+1e-3).mean()
+            print('loss:',loss.item())
+
+            loss.backward()
+            optimizer.step()
+        
+        # eval student model
+        stu_model.eval()
+
     # run the model
     results = []
-    MODEL.model.task = ARGS.task
-    for i in tqdm(range(0, image_process.shape[0], BATCH_SIZE)):
-        model_input = image_process[i:i+BATCH_SIZE].to(ARGS.device)
-        results.append(MODEL.model(model_input).cpu().detach())
+    with torch.no_grad():
+        for i in tqdm(range(0, image_process.shape[0], BATCH_SIZE)):
+            model_input = image_process[i:i+BATCH_SIZE].to(ARGS.device)
+            if adaptive:
+                results.append(stu_model(model_input).cpu().detach())
+            else:
+                results.append(MODEL.model(model_input).cpu().detach())
     results = torch.cat(results, dim=0)
 
     # merge the patches
@@ -166,6 +275,7 @@ def load_model(type, device, chop, progress=gr.Progress()):
 
     MODEL = Network(opt["model"]["which_networks"][0]["args"]["unimodel"])
     MODEL.load_state_dict(torch.load(model_path), strict=False)
+    MODEL.eval()
 
     match device:
         case 'CPU':
@@ -183,7 +293,7 @@ def load_model(type, device, chop, progress=gr.Progress()):
 
 with gr.Blocks(title="UniEMIR Web Demo") as demo:
 
-    gr.Markdown("# Pushing high-quality ultrastructural imaging limits with a foundational restoration model for volume electron microscopy")
+    gr.Markdown("# UniEMIR WebUI")
     gr.Markdown("This web UI allows you to run the models on your own images or the examples from the paper.")
 
     gr.Markdown("## Instructions")
@@ -199,6 +309,7 @@ with gr.Blocks(title="UniEMIR Web Demo") as demo:
         type = gr.Dropdown(label="Task", choices=TASKS, value="Denoising", interactive=True)
         chop = gr.Dropdown(label="Chop", choices=['Yes','No'], value="Yes", interactive=True)
         device = gr.Dropdown(label="Device", choices=DEVICES, value="CUDA", interactive=True)
+        adaptive = gr.Slider(label="Adaptive", minimum=0, maximum=10, step=1, value=0, interactive=True)
         load_progress = gr.Textbox(label="Model Information", value="Model not loaded")
         load_btn = gr.Button("Load Model")
 
@@ -234,6 +345,6 @@ with gr.Blocks(title="UniEMIR Web Demo") as demo:
     check_input.click(visualize, inputs=img_input, outputs=[img_visual, input_message], queue=True)
     display_btn.click(visualize, inputs=output_file, outputs=[img_output, output_message], queue=True)
     load_btn.click(load_model,inputs=[type, device, chop],outputs=load_progress, queue=True)
-    run_btn.click(run_model, inputs=img_input, outputs=[output_file, output_message], queue=True)
+    run_btn.click(run_model, inputs=[img_input, adaptive], outputs=[output_file, output_message], queue=True)
 
 demo.queue().launch(server_name='0.0.0.0', server_port=7860)

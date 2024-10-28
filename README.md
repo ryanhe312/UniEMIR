@@ -1,11 +1,5 @@
 # UniEMIR
 
-Official Implementation for "Pushing high-quality ultrastructural imaging limits with a foundational restoration model for volume electron microscopy".
-
-## TL;DR
-
-UniEMIR is a foundational image restoration model for vEM, which enhances radial resolution, reduces noise, and reconstructs isotropic images by jointly modeling multiple degradation processes.
-
 ## UniEMIR WebUI
 
 We developed a web-based user interface, which can be deployed on high-performance GPU servers. You can use the colab <a target="_blank" href="https://colab.research.google.com/github/ryanhe312/UniEMIR/blob/main/UniEMIR.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/></a> to run the Web UI or employ the following steps to run the web user interface locally.
@@ -101,7 +95,7 @@ And you can unzip the models under `models` folder in ImageJ root folder.
 @software{he2024pushing,
   author = {Ruian He, Weimin Tan, Chenxi Ma and Bo Yan},
   doi = {10.5281/zenodo.12738837},
-  title = {{Pushing high-quality ultrastructural imaging limits with a foundational restoration model for volume electron microscopy}},
+  title = {UniEMIR},
   url = {https://github.com/ryanhe312/UniEMIR},
   year = {2024}
 }

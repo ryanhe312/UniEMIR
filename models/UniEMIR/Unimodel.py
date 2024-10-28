@@ -88,17 +88,17 @@ class UniModel(nn.Module):
         # ~~~~~~~~~~~~ Head ~~~~~~~~~~~~~~~ #
         if self.task == 1:
             x = self.check_image_size(x)
-            self.mean = self.mean.type_as(x)
+            self.mean = x.mean().detach()
             x = (x - self.mean) * self.img_range
             x = self.conv_firstsr(x)
         elif self.task == 2:
             x = self.check_image_size(x)
-            self.mean = self.mean.type_as(x)
+            self.mean = x.mean().detach()
             x = (x - self.mean) * self.img_range
             x = self.conv_firstdT(x)
         elif self.task == 3:
             x = self.check_image_size(x)
-            self.mean = self.mean.type_as(x)
+            self.mean = x.mean().detach()
             x = (x - self.mean) * self.img_range
             x = self.conv_firstiso(x)
         
