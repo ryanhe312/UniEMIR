@@ -21,7 +21,7 @@ python app.py
 
 Then, you can visit the web interface at [http://127.0.0.1:7860/](http://127.0.0.1:7860/). We provide a video tutorial for UniEMIR web user interface.
 
-[![](https://markdown-videos-api.jorgenkh.no/youtube/psoT_a0Jg3U)](https://youtu.be/psoT_a0Jg3U)
+[![](https://markdown-videos-api.jorgenkh.no/youtube/psoT_a0Jg3U)](https://youtu.be/Z241VZjswaQ)
 
 ## UniEMIR Plugin
 
