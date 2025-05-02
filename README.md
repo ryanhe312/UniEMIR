@@ -4,7 +4,7 @@
 
 We developed a web-based user interface, which can be deployed on high-performance GPU servers. You can use the colab <a target="_blank" href="https://colab.research.google.com/github/ryanhe312/UniEMIR/blob/main/UniEMIR.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/></a> to run the Web UI or employ the following steps to run the web user interface locally.
 
-1. Install Packages
+1. Install Packages 
 
 ```
 conda create -n uniemir python=3.11.8
@@ -13,15 +13,21 @@ pip install torch==2.2.1+cu121 torchvision==0.17.1+cu121 -f https://download.pyt
 pip install -r requirements.txt
 ```
 
-3. Run the Web User Interface
+This may takes about 20 mins.
+
+3. Run the Web User Interface 
 
 ```
 python app.py
 ```
 
-Then, you can visit the web interface at [http://127.0.0.1:7860/](http://127.0.0.1:7860/). We provide a video tutorial for UniEMIR web user interface.
+Then, you can visit the web interface at [http://127.0.0.1:7860/](http://127.0.0.1:7860/). 
+
+We provide a video tutorial for UniEMIR web user interface.
 
 [![](https://markdown-videos-api.jorgenkh.no/youtube/psoT_a0Jg3U)](https://youtu.be/Z241VZjswaQ)
+
+This may takes about 1 min for loading and 0.129s for processing a 256x256 image.
 
 ## UniEMIR Plugin
 
